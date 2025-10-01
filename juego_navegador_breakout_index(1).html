@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FPS mejorado — Demo</title>
+  <style>
+    :root{font-family:system-ui,Segoe UI,Roboto,Arial}
+    html,body{height:100%;margin:0;background:#0b0f14;color:#fff;overflow:hidden}
+    #ui{position:fixed;left:12px;top:12px;z-index:20}
+    button{padding:.5rem 1rem;border-radius:8px;border:0;background:#1f6feb;color:white;font-weight:600;margin-right:8px}
+    #game{display:block;width:100vw;height:100vh}
+    #minimap{position:fixed;right:12px;top:12px;width:200px;height:200px;background:rgba(0,0,0,0.35);border-radius:8px;padding:8px}
+    #status{position:fixed;left:12px;bottom:12px;background:rgba(0,0,0,0.35);padding:8px;border-radius:8px}
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="startBtn">Iniciar / Lock Cursor</button>
+    <button id="connectBtn">Conectar (online)</button>
+    <button id="spawnBtn">Respawn</button>
+  </div>
+  <canvas id="game"></canvas>
+  <canvas id="minimap"></canvas>
+  <div id="status">Estado: <span id="stat">offline</span> — Jugadores: <span id="count">1</span></div>
+
+<script>
+// FPS raycaster simple mejorado con gráficos y mapa más detallados
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const mini = document.getElementById('minimap');
+const mctx = mini.getContext('2d');
+let W,H; function resize(){W=canvas.width=innerWidth;H=canvas.height=innerHeight;mini.width=200;mini.height=200;} addEventListener('resize',resize); resize();
+
+// Mapa más variado (0 suelo, 1 muro piedra, 2 muro ladrillo, 3 muro metal)
+const MAP=[
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+[1,0,2,2,0,0,0,0,0,3,3,0,0,0,1],
+[1,0,2,0,0,0,0,0,0,3,0,0,0,0,1],
+[1,0,2,0,0,0,1,1,0,3,0,0,0,0,1],
+[1,0,2,0,0,0,1,1,0,3,0,0,0,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,2,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,2,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,2,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,2,0,1],
+[1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+const MAPW=MAP[0].length,MAPH=MAP.length; const TILE=64;
+
+// Jugador
+const player={x:2.5*TILE,y:2.5*TILE,ang:0,speed:0,hp:100};
+const players={me:player};
+
+// Ajustes
+const FOV=Math.PI/3; const MAX_DIST=1000;
+
+// Controles
+const keys={};
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;if(e.key===' ')shoot();});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
+
+// Pointer lock
+const startBtn=document.getElementById('startBtn'); startBtn.onclick=()=>canvas.requestPointerLock();
+addEventListener('pointerlockchange',()=>{if(document.pointerLockElement===canvas){document.addEventListener('mousemove',onMouse);startBtn.textContent='Cursor locked';}else{document.removeEventListener('mousemove',onMouse);startBtn.textContent='Iniciar / Lock Cursor';}});
+function onMouse(e){player.ang+=e.movementX*0.002;}
+
+function move(dt){const sp=160;let dx=0,dy=0;if(keys['w']){dx+=Math.cos(player.ang)*sp*dt;dy+=Math.sin(player.ang)*sp*dt}if(keys['s']){dx-=Math.cos(player.ang)*sp*dt;dy-=Math.sin(player.ang)*sp*dt}if(keys['a']){dx+=Math.cos(player.ang-Math.PI/2)*sp*dt;dy+=Math.sin(player.ang-Math.PI/2)*sp*dt}if(keys['d']){dx+=Math.cos(player.ang+Math.PI/2)*sp*dt;dy+=Math.sin(player.ang+Math.PI/2)*sp*dt}moveFree(player,dx,dy);} 
+function moveFree(p,dx,dy){const nx=p.x+dx,ny=p.y+dy,r=12;if(!wallAt(nx,ny)) {p.x=nx;p.y=ny;}}
+function wallAt(px,py){const cx=Math.floor(px/TILE),cy=Math.floor(py/TILE);if(cx<0||cy<0||cx>=MAPW||cy>=MAPH)return true;return MAP[cy][cx]>0;}
+
+// Render
+function render(){ctx.fillStyle='#5ec8ff';ctx.fillRect(0,0,W,H/2);ctx.fillStyle='#2b2b2b';ctx.fillRect(0,H/2,W,H/2);
+ for(let x=0;x<W;x+=2){const rayAng=(player.ang-FOV/2)+(x/W)*FOV;const hit=cast(player.x,player.y,rayAng);const dist=hit.dist*Math.cos(rayAng-player.ang);const h=(TILE*300)/dist;const tex=hit.type;let color; if(tex===1)color='#888'; if(tex===2)color='#c44'; if(tex===3)color='#6cf'; ctx.fillStyle=color; ctx.fillRect(x,H/2-h/2,2,h);} 
+ // crosshair
+ ctx.fillStyle='rgba(255,255,255,0.8)';ctx.fillRect(W/2-1,H/2-8,2,16);ctx.fillRect(W/2-8,H/2-1,16,2);
+}
+
+function cast(px,py,ang){const cos=Math.cos(ang),sin=Math.sin(ang);let dist=0;while(dist<MAX_DIST){dist+=4;const rx=px+cos*dist,ry=py+sin*dist;const cx=Math.floor(rx/TILE),cy=Math.floor(ry/TILE);if(cx<0||cy<0||cx>=MAPW||cy>=MAPH) return{dist:MAX_DIST,type:0};const cell=MAP[cy][cx];if(cell>0)return{dist,type:cell};}return{dist:MAX_DIST,type:0};}
+
+// minimapa
+function drawMini(){const s=mini.width/(MAPW*TILE);mctx.fillStyle='#000';mctx.fillRect(0,0,mini.width,mini.height);for(let y=0;y<MAPH;y++)for(let x=0;x<MAPW;x++){if(MAP[y][x]>0){mctx.fillStyle=['#999','#c44','#6cf'][MAP[y][x]-1];mctx.fillRect(x*TILE*s,y*TILE*s,TILE*s,TILE*s)}}mctx.fillStyle='#4ef';mctx.fillRect((player.x/TILE)*s-3,(player.y/TILE)*s-3,6,6);}
+
+// disparos
+const bullets=[]; function shoot(){bullets.push({x:player.x,y:player.y,ang:player.ang,t:0});}
+function updateBullets(dt){for(let i=bullets.length-1;i>=0;i--){const b=bullets[i];b.x+=Math.cos(b.ang)*400*dt;b.y+=Math.sin(b.ang)*400*dt;b.t+=dt;if(wallAt(b.x,b.y)||b.t>2)bullets.splice(i,1);} }
+function drawBullets(){ctx.fillStyle='yellow';for(const b of bullets){const dx=b.x-player.x,dy=b.y-player.y;const dist=Math.hypot(dx,dy);if(dist<MAX_DIST){ctx.beginPath();ctx.arc(W/2,H/2,2,0,Math.PI*2);ctx.fill();}}}
+
+let last=performance.now(); function loop(now){const dt=(now-last)/1000;last=now;move(dt);updateBullets(dt);render();drawBullets();drawMini();requestAnimationFrame(loop);} requestAnimationFrame(loop);
+</script>
+</body>
+</html>
